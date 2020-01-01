@@ -2,22 +2,23 @@
 struct Block {
     text: Vec<Vec<u8>>,
 
-    // coordinates in a grid world
+    // these coordinates are in a logical space where each block occupies the exact same amount of
+    // space both horizontally and vertically.
     column: usize,
     row: usize,
 
-    // rendering data, should probably live elsewhere
-    width: usize,
-    height: usize,
+    // these are the dimensions in canvas space of the text contained in the block.
+    text_width: usize,
+    text_height: usize,
 }
 
 impl Block {
     fn new((row, column): (usize, usize), t: &[u8]) -> Self {
-        let mut width = 0;
+        let mut text_width = 0;
         let mut text = vec![vec![]];
         for c in t {
             if *c == b'\n' {
-                width = width.max(text.last().unwrap().len());
+                text_width = text_width.max(text.last().unwrap().len());
                 text.push(vec![]);
                 continue;
             }
@@ -26,20 +27,21 @@ impl Block {
                 text.last_mut().unwrap().push(*c);
             }
         }
-        width = width.max(text.last().unwrap().len());
+        text_width = text_width.max(text.last().unwrap().len());
 
-        let height = text.len();
+        let text_height = text.len();
 
         Self {
             column,
-            height,
             row,
             text,
-            width,
+            text_height,
+            text_width,
         }
     }
 }
 
+/// A `Canvas` is the surface where we can draw shapes using ASCII characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Canvas {
     canvas: Vec<Vec<u8>>,
@@ -94,6 +96,91 @@ impl Canvas {
     }
 }
 
+/// `CanvasSpace` is the definition of the cannvas dimensions (columns width and rows height)
+/// required to render a set of `Block`s.
+///
+/// Each `Block` logically occupies a single point, but in `CanvasSpace` it is expanded to the
+/// actual dimensions required to be drawn.
+///
+/// In spirit it is similar to a 3D camera that goes from 3D space to 2D.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanvasSpace {
+    columns_xs: Vec<usize>,
+    columns_width: Vec<usize>,
+
+    rows_ys: Vec<usize>,
+    rows_height: Vec<usize>,
+
+    canvas_width: usize,
+    canvas_height: usize,
+}
+
+impl CanvasSpace {
+    fn new(
+        boxes: &[Block],
+        RenderOptions {
+            hmargin,
+            vmargin,
+            padding,
+        }: RenderOptions,
+    ) -> Self {
+        // +1 is to go from inclusive coordinates to exclusive
+        let width = 1 + boxes.iter().map(|b| b.column).max().unwrap();
+        let height = 1 + boxes.iter().map(|b| b.row).max().unwrap();
+
+        let mut columns_width = vec![0; width];
+        let mut rows_height = vec![0; height];
+
+        for b in boxes {
+            // +2 to account for block borders
+            let w = 2 + b.text_width + padding * 2;
+            let h = 2 + b.text_height + padding * 2;
+
+            columns_width[b.column] = columns_width[b.column].max(w);
+            rows_height[b.row] = rows_height[b.row].max(h);
+        }
+
+        let mut columns_xs = vec![0; width];
+        for x in 1..width {
+            columns_xs[x] = columns_xs[x - 1] + columns_width[x - 1] + hmargin;
+        }
+
+        let mut rows_ys = vec![0; height];
+        for y in 1..height {
+            rows_ys[y] = rows_ys[y - 1] + rows_height[y - 1] + vmargin;
+        }
+
+        // subtract a margin to remove the final trailing empty margin
+        let canvas_width =
+            hmargin * width - hmargin + columns_xs[width - 1] + columns_width[width - 1];
+        let canvas_height =
+            vmargin * height - vmargin + rows_ys[height - 1] + rows_height[height - 1];
+
+        Self {
+            columns_width,
+            rows_height,
+            columns_xs,
+            rows_ys,
+            canvas_width,
+            canvas_height,
+        }
+    }
+
+    fn column_x(&self, column: usize) -> usize {
+        self.columns_xs[column]
+    }
+    fn column_width(&self, column: usize) -> usize {
+        self.columns_width[column]
+    }
+
+    fn row_y(&self, row: usize) -> usize {
+        self.rows_ys[row]
+    }
+    fn row_height(&self, row: usize) -> usize {
+        self.rows_height[row]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenderOptions {
     hmargin: usize,
@@ -101,63 +188,28 @@ struct RenderOptions {
     padding: usize,
 }
 
-fn render(
-    boxes: &[Block],
-    RenderOptions {
-        hmargin,
-        vmargin,
-        padding,
-    }: RenderOptions,
-) -> Vec<Vec<u8>> {
+fn render(boxes: &[Block], config: RenderOptions) -> Vec<Vec<u8>> {
     if boxes.is_empty() {
         return vec![];
     }
 
-    let width = 1 + boxes.iter().map(|b| b.column).max().unwrap();
-    let height = 1 + boxes.iter().map(|b| b.row).max().unwrap();
-
-    let mut columns_width = vec![0; width];
-    let mut rows_height = vec![0; height];
+    let cs = CanvasSpace::new(boxes, config);
+    let mut canvas = Canvas::new(cs.canvas_width, cs.canvas_height);
 
     for b in boxes {
-        // +2 to account for borders
-        let w = 2 + b.width + padding * 2;
-        let h = 2 + b.height + padding * 2;
+        let x = cs.column_x(b.column);
+        let y = cs.row_y(b.row);
+        let w = cs.column_width(b.column);
+        let h = cs.row_height(b.row);
 
-        columns_width[b.column] = columns_width[b.column].max(w);
-        rows_height[b.row] = rows_height[b.row].max(h);
-    }
+        canvas.draw_rect_outline(x, y, w, h);
 
-    let mut columns_xs = vec![0; width];
-    for x in 1..width {
-        columns_xs[x] = columns_xs[x - 1] + columns_width[x - 1] + hmargin;
-    }
-
-    let mut rows_ys = vec![0; height];
-    for y in 1..height {
-        rows_ys[y] = rows_ys[y - 1] + rows_height[y - 1] + vmargin;
-    }
-
-    // subtract a margin to remove trailing empty margin
-    let canvas_width = hmargin * width - hmargin + columns_width.iter().sum::<usize>();
-    let canvas_height = vmargin * height - vmargin + rows_height.iter().sum::<usize>();
-
-    let mut canvas = Canvas::new(canvas_width, canvas_height);
-
-    for b in boxes {
-        let xs = columns_xs[b.column];
-        let ys = rows_ys[b.row];
-
-        let w = columns_width[b.column];
-        let h = rows_height[b.row];
-
-        canvas.draw_rect_outline(xs, ys, w, h);
-
-        let yoff = (h - b.height) / 2;
-        let xoff = (w - b.width) / 2;
+        // center text horizontally and vertically
+        let xoff = (w - b.text_width) / 2;
+        let yoff = (h - b.text_height) / 2;
 
         for (ty, t) in b.text.iter().enumerate() {
-            canvas.draw_text(xs + xoff, ys + yoff + ty, t);
+            canvas.draw_text(x + xoff, y + yoff + ty, t);
         }
     }
 
@@ -166,10 +218,10 @@ fn render(
         for b2 in boxes {
             if b1.row == b2.row && b1.column + 1 == b2.column {
                 canvas.draw_horizontal_line(
-                    rows_ys[b1.row] + rows_height[b1.row] / 2,
+                    cs.row_y(b1.row) + cs.row_height(b1.row) / 2,
                     (
-                        columns_xs[b1.column] + columns_width[b1.column] - 1,
-                        columns_xs[b2.column],
+                        cs.column_x(b1.column) + cs.column_width(b1.column) - 1,
+                        cs.column_x(b2.column),
                     ),
                 );
                 continue;
@@ -177,8 +229,11 @@ fn render(
 
             if b1.column == b2.column && b1.row < b2.row {
                 canvas.draw_vertical_line(
-                    columns_xs[b1.column] + columns_width[b1.column] / 2,
-                    (rows_ys[b1.row] + rows_height[b1.row] - 1, rows_ys[b2.row]),
+                    cs.column_x(b1.column) + cs.column_width(b1.column) / 2,
+                    (
+                        cs.row_y(b1.row) + cs.row_height(b1.row) - 1,
+                        cs.row_y(b2.row),
+                    ),
                 );
                 continue;
             }
