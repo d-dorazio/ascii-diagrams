@@ -1,11 +1,15 @@
+use std::convert::TryFrom;
+
+type LogicalCoord = i32;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Block {
     text: Vec<Vec<u8>>,
 
     // these coordinates are in a logical space where each block occupies the exact same amount of
     // space both horizontally and vertically.
-    column: usize,
-    row: usize,
+    column: LogicalCoord,
+    row: LogicalCoord,
 
     // these are the dimensions in canvas space of the text contained in the block.
     text_width: usize,
@@ -13,7 +17,7 @@ struct Block {
 }
 
 impl Block {
-    fn new((row, column): (usize, usize), t: &[u8]) -> Self {
+    fn new((row, column): (LogicalCoord, LogicalCoord), t: &[u8]) -> Self {
         let mut text_width = 0;
         let mut text = vec![vec![]];
         for c in t {
@@ -105,6 +109,9 @@ impl Canvas {
 /// In spirit it is similar to a 3D camera that goes from 3D space to 2D.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CanvasSpace {
+    min_column: LogicalCoord,
+    min_row: LogicalCoord,
+
     columns_xs: Vec<usize>,
     columns_width: Vec<usize>,
 
@@ -124,60 +131,75 @@ impl CanvasSpace {
             padding,
         }: RenderOptions,
     ) -> Self {
-        // +1 is to go from inclusive coordinates to exclusive
-        let width = 1 + boxes.iter().map(|b| b.column).max().unwrap();
-        let height = 1 + boxes.iter().map(|b| b.row).max().unwrap();
+        let mut min_column = LogicalCoord::max_value();
+        let mut min_row = LogicalCoord::max_value();
+        let mut max_column = LogicalCoord::min_value();
+        let mut max_row = LogicalCoord::min_value();
+        for b in boxes {
+            min_column = min_column.min(b.column);
+            min_row = min_row.min(b.row);
+            max_column = max_column.max(b.column);
+            max_row = max_row.max(b.row);
+        }
 
-        let mut columns_width = vec![0; width];
-        let mut rows_height = vec![0; height];
+        // +1 is to go from inclusive coordinates to exclusive
+        let width = 1 + usize::try_from(max_column - min_column).unwrap();
+        let height = 1 + usize::try_from(max_row - min_row).unwrap();
+
+        let mut cs = Self {
+            min_column,
+            min_row,
+
+            columns_xs: vec![0; width],
+            columns_width: vec![0; width],
+
+            rows_ys: vec![0; height],
+            rows_height: vec![0; height],
+
+            canvas_width: 0,
+            canvas_height: 0,
+        };
 
         for b in boxes {
+            let c = usize::try_from(b.column - min_column).unwrap();
+            let r = usize::try_from(b.row - min_row).unwrap();
+
             // +2 to account for block borders
             let w = 2 + b.text_width + padding * 2;
             let h = 2 + b.text_height + padding * 2;
 
-            columns_width[b.column] = columns_width[b.column].max(w);
-            rows_height[b.row] = rows_height[b.row].max(h);
+            cs.columns_width[c] = cs.columns_width[c].max(w);
+            cs.rows_height[r] = cs.rows_height[r].max(h);
         }
 
-        let mut columns_xs = vec![0; width];
         for x in 1..width {
-            columns_xs[x] = columns_xs[x - 1] + columns_width[x - 1] + hmargin;
+            cs.columns_xs[x] = cs.columns_xs[x - 1] + cs.columns_width[x - 1] + hmargin;
         }
-
-        let mut rows_ys = vec![0; height];
         for y in 1..height {
-            rows_ys[y] = rows_ys[y - 1] + rows_height[y - 1] + vmargin;
+            cs.rows_ys[y] = cs.rows_ys[y - 1] + cs.rows_height[y - 1] + vmargin;
         }
 
         // subtract a margin to remove the final trailing empty margin
-        let canvas_width =
-            hmargin * width - hmargin + columns_xs[width - 1] + columns_width[width - 1];
-        let canvas_height =
-            vmargin * height - vmargin + rows_ys[height - 1] + rows_height[height - 1];
+        cs.canvas_width =
+            hmargin * width - hmargin + cs.columns_xs[width - 1] + cs.columns_width[width - 1];
+        cs.canvas_height =
+            vmargin * height - vmargin + cs.rows_ys[height - 1] + cs.rows_height[height - 1];
 
-        Self {
-            columns_width,
-            rows_height,
-            columns_xs,
-            rows_ys,
-            canvas_width,
-            canvas_height,
-        }
+        cs
     }
 
-    fn column_x(&self, column: usize) -> usize {
-        self.columns_xs[column]
+    fn column_x(&self, column: LogicalCoord) -> usize {
+        self.columns_xs[usize::try_from(column - self.min_column).unwrap()]
     }
-    fn column_width(&self, column: usize) -> usize {
-        self.columns_width[column]
+    fn column_width(&self, column: LogicalCoord) -> usize {
+        self.columns_width[usize::try_from(column - self.min_column).unwrap()]
     }
 
-    fn row_y(&self, row: usize) -> usize {
-        self.rows_ys[row]
+    fn row_y(&self, row: LogicalCoord) -> usize {
+        self.rows_ys[usize::try_from(row - self.min_row).unwrap()]
     }
-    fn row_height(&self, row: usize) -> usize {
-        self.rows_height[row]
+    fn row_height(&self, row: LogicalCoord) -> usize {
+        self.rows_height[usize::try_from(row - self.min_row).unwrap()]
     }
 }
 
@@ -245,11 +267,12 @@ fn render(boxes: &[Block], config: RenderOptions) -> Vec<Vec<u8>> {
 
 fn main() {
     let boxes = [
-        Block::new((0, 0), b"ciao mondo"),
-        Block::new((1, 0), b"yolo"),
-        Block::new((0, 1), b"l'ultimo dell'anno"),
-        Block::new((2, 2), b"cacca"),
-        Block::new((0, 2), b"yolo\nfoo\nbar"),
+        Block::new((-1, -1), b"ciao mondo"),
+        Block::new((0, 0), b"center"),
+        Block::new((1, -1), b"yolo"),
+        Block::new((-1, 0), b"l'ultimo dell'anno"),
+        Block::new((1, 1), b"cacca"),
+        Block::new((-1, 1), b"yolo\nfoo\nbar"),
     ];
 
     let canvas = render(
