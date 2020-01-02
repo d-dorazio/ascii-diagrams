@@ -1,5 +1,8 @@
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
+/// (row, column)
+type LogicalPoint = (LogicalCoord, LogicalCoord);
 type LogicalCoord = i32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,7 +20,7 @@ struct Block {
 }
 
 impl Block {
-    fn new((row, column): (LogicalCoord, LogicalCoord), t: &[u8]) -> Self {
+    fn new((row, column): LogicalPoint, t: &[u8]) -> Self {
         let mut text_width = 0;
         let mut text = vec![vec![]];
         for c in t {
@@ -84,6 +87,7 @@ impl Canvas {
     }
 
     fn draw_vertical_line(&mut self, x: usize, (y0, y1): (usize, usize)) {
+        let (y0, y1) = minmax(y0, y1);
         for y in (y0..y1).skip(1) {
             self.canvas[y][x] = b'|';
         }
@@ -92,6 +96,7 @@ impl Canvas {
     }
 
     fn draw_horizontal_line(&mut self, y: usize, (x0, x1): (usize, usize)) {
+        let (x0, x1) = minmax(x0, x1);
         for x in (x0..x1).skip(1) {
             self.canvas[y][x] = b'-';
         }
@@ -120,6 +125,8 @@ struct CanvasSpace {
 
     canvas_width: usize,
     canvas_height: usize,
+
+    blocks_position: HashSet<LogicalPoint>,
 }
 
 impl CanvasSpace {
@@ -158,6 +165,8 @@ impl CanvasSpace {
 
             canvas_width: 0,
             canvas_height: 0,
+
+            blocks_position: HashSet::with_capacity(boxes.len()),
         };
 
         for b in boxes {
@@ -170,6 +179,8 @@ impl CanvasSpace {
 
             cs.columns_width[c] = cs.columns_width[c].max(w);
             cs.rows_height[r] = cs.rows_height[r].max(h);
+
+            cs.blocks_position.insert((b.row, b.column));
         }
 
         for x in 1..width {
@@ -201,6 +212,10 @@ impl CanvasSpace {
     fn row_height(&self, row: LogicalCoord) -> usize {
         self.rows_height[usize::try_from(row - self.min_row).unwrap()]
     }
+
+    fn free_path(&self, path: impl IntoIterator<Item = LogicalPoint>) -> bool {
+        path.into_iter().all(|p| !self.blocks_position.contains(&p))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,7 +225,7 @@ struct RenderOptions {
     padding: usize,
 }
 
-fn render(boxes: &[Block], config: RenderOptions) -> Vec<Vec<u8>> {
+fn render(boxes: &[Block], lines: &[(usize, usize)], config: RenderOptions) -> Vec<Vec<u8>> {
     if boxes.is_empty() {
         return vec![];
     }
@@ -235,31 +250,91 @@ fn render(boxes: &[Block], config: RenderOptions) -> Vec<Vec<u8>> {
         }
     }
 
-    // TODO: placeholder just to draw some lines
-    for b1 in boxes {
-        for b2 in boxes {
-            if b1.row == b2.row && b1.column + 1 == b2.column {
-                canvas.draw_horizontal_line(
-                    cs.row_y(b1.row) + cs.row_height(b1.row) / 2,
-                    (
-                        cs.column_x(b1.column) + cs.column_width(b1.column) - 1,
-                        cs.column_x(b2.column),
-                    ),
-                );
-                continue;
-            }
+    for (b0, b1) in lines {
+        let b0 = &boxes[*b0];
+        let b1 = &boxes[*b1];
+        let (r0, c0) = (b0.row, b0.column);
+        let (r1, c1) = (b1.row, b1.column);
 
-            if b1.column == b2.column && b1.row < b2.row {
-                canvas.draw_vertical_line(
-                    cs.column_x(b1.column) + cs.column_width(b1.column) / 2,
-                    (
-                        cs.row_y(b1.row) + cs.row_height(b1.row) - 1,
-                        cs.row_y(b2.row),
-                    ),
-                );
-                continue;
-            }
+        // same row, just draw a horizontal line
+        if r0 == r1 {
+            let (c0, c1) = minmax(c0, c1);
+            canvas.draw_horizontal_line(
+                cs.row_y(r0) + cs.row_height(r0) / 2,
+                (cs.column_x(c0) + cs.column_width(c0) - 1, cs.column_x(c1)),
+            );
+            continue;
         }
+
+        // same column, just draw a vertical line
+        if c0 == c1 {
+            let (r0, r1) = minmax(r0, r1);
+            canvas.draw_vertical_line(
+                cs.column_x(c0) + cs.column_width(c0) / 2,
+                (cs.row_y(r0) + cs.row_height(r0) - 1, cs.row_y(r1)),
+            );
+            continue;
+        }
+
+        // here things are more complicated because the connection must do a turn at least to get
+        // to the target. As of now, just check if it's possible to draw a line with a single turn.
+        // Collision detection will come...
+        let (ww, hh) = ((c1 - c0).abs(), (r1 - r0).abs());
+        let (sc, sr) = ((c1 - c0).signum(), (r1 - r0).signum());
+
+        // vertical -> horizontal
+        if cs.free_path((1..=hh).map(|i| (r0 + i * sr, c0)))
+            && cs.free_path((0..ww).map(|i| (r1, c0 + i * sc)))
+        {
+            let turn_y = cs.row_y(r1) + cs.row_height(r1) / 2;
+            let turn_x = cs.column_x(c0) + cs.column_width(c0) / 2;
+
+            canvas.draw_vertical_line(
+                turn_x,
+                (
+                    cs.row_y(r0) + if sr > 0 { cs.row_height(r0) - 1 } else { 0 },
+                    turn_y,
+                ),
+            );
+
+            canvas.draw_horizontal_line(
+                turn_y,
+                (
+                    turn_x,
+                    cs.column_x(c1) + if sc < 0 { cs.column_width(c1) - 1 } else { 0 },
+                ),
+            );
+
+            continue;
+        }
+
+        // horizontal -> vertical
+        if cs.free_path((1..=ww).map(|i| (r0, c0 + i * sc)))
+            && cs.free_path((0..hh).map(|i| (r0 + i * sr, c1)))
+        {
+            let turn_y = cs.row_y(r0) + cs.row_height(r0) / 2;
+            let turn_x = cs.column_x(c1) + cs.column_width(c1) / 2;
+
+            canvas.draw_horizontal_line(
+                turn_y,
+                (
+                    cs.column_x(c0) + if sc > 0 { cs.column_width(c0) - 1 } else { 0 },
+                    turn_x,
+                ),
+            );
+
+            canvas.draw_vertical_line(
+                turn_x,
+                (
+                    turn_y,
+                    cs.row_y(r1) + if sr < 0 { cs.row_height(r1) - 1 } else { 0 },
+                ),
+            );
+
+            continue;
+        }
+
+        todo!("complex line routing has not been implemented yet");
     }
 
     canvas.canvas
@@ -274,9 +349,19 @@ fn main() {
         Block::new((1, 1), b"cacca"),
         Block::new((-1, 1), b"yolo\nfoo\nbar"),
     ];
+    let lines = [
+        (0, 2),
+        (0, 3),
+        (1, 3),
+        (3, 5),
+        (4, 5),
+        (1, 4),
+        // (4, 1),
+    ];
 
     let canvas = render(
         &boxes,
+        &lines,
         RenderOptions {
             hmargin: 5,
             vmargin: 2,
@@ -286,5 +371,13 @@ fn main() {
 
     for l in canvas {
         println!("{}", String::from_utf8(l).unwrap());
+    }
+}
+
+pub fn minmax<T: Ord>(a: T, b: T) -> (T, T) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
     }
 }
