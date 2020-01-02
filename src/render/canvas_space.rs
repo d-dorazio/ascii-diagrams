@@ -82,6 +82,11 @@ impl CanvasSpace {
             cs.blocks_position.insert((b.row, b.column));
         }
 
+        // note: margins are intentionally added before and after the first and last element in
+        // order to have more room for placing lines.
+        cs.columns_xs[0] = hmargin;
+        cs.rows_ys[0] = vmargin;
+
         for x in 1..width {
             cs.columns_xs[x] = cs.columns_xs[x - 1] + cs.columns_width[x - 1] + hmargin;
         }
@@ -89,11 +94,8 @@ impl CanvasSpace {
             cs.rows_ys[y] = cs.rows_ys[y - 1] + cs.rows_height[y - 1] + vmargin;
         }
 
-        // subtract a margin to remove the final trailing empty margin
-        cs.canvas_width =
-            hmargin * width - hmargin + cs.columns_xs[width - 1] + cs.columns_width[width - 1];
-        cs.canvas_height =
-            vmargin * height - vmargin + cs.rows_ys[height - 1] + cs.rows_height[height - 1];
+        cs.canvas_width = cs.columns_xs[width - 1] + cs.columns_width[width - 1] + hmargin;
+        cs.canvas_height = cs.rows_ys[height - 1] + cs.rows_height[height - 1] + vmargin;
 
         cs
     }

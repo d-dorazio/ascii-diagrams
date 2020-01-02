@@ -10,8 +10,13 @@ use crate::Block;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderOptions {
+    /// horizontal margin placed between columns, also after the last one and before the first one.
     pub hmargin: usize,
+
+    /// vertical margin placed between rows, also after the last one and before the first one.
     pub vmargin: usize,
+
+    /// padding around the text inside the `Block`s.
     pub padding: usize,
 }
 
