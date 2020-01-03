@@ -1,8 +1,7 @@
-use std::collections::HashSet;
 use std::convert::TryFrom;
 
 use crate::render::RenderOptions;
-use crate::{Block, LogicalCoord, LogicalPoint};
+use crate::{Block, LogicalCoord};
 
 /// `CanvasSpace` is the definition of the cannvas dimensions (columns width and rows height)
 /// required to render a set of `Block`s.
@@ -24,8 +23,6 @@ pub struct CanvasSpace {
 
     canvas_width: usize,
     canvas_height: usize,
-
-    blocks_position: HashSet<LogicalPoint>,
 }
 
 impl CanvasSpace {
@@ -64,8 +61,6 @@ impl CanvasSpace {
 
             canvas_width: 0,
             canvas_height: 0,
-
-            blocks_position: HashSet::with_capacity(boxes.len()),
         };
 
         for b in boxes {
@@ -78,8 +73,6 @@ impl CanvasSpace {
 
             cs.columns_width[c] = cs.columns_width[c].max(w);
             cs.rows_height[r] = cs.rows_height[r].max(h);
-
-            cs.blocks_position.insert((b.row, b.column));
         }
 
         // note: margins are intentionally added before and after the first and last element in
@@ -119,9 +112,5 @@ impl CanvasSpace {
     }
     pub fn row_height(&self, row: LogicalCoord) -> usize {
         self.rows_height[usize::try_from(row - self.min_row).unwrap()]
-    }
-
-    pub fn free_path(&self, path: impl IntoIterator<Item = LogicalPoint>) -> bool {
-        path.into_iter().all(|p| !self.blocks_position.contains(&p))
     }
 }

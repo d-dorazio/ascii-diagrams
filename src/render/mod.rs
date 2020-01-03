@@ -4,7 +4,7 @@ mod lines;
 
 use canvas::Canvas;
 use canvas_space::CanvasSpace;
-use lines::{find_lines_path, Line};
+use lines::find_lines_path;
 
 use crate::Block;
 
@@ -47,10 +47,7 @@ pub fn render(boxes: &[Block], edges: &[(usize, usize)], config: RenderOptions) 
 
     for poly in find_lines_path(&canvas, &cs, boxes, edges) {
         for l in poly {
-            match l {
-                Line::Horizontal(y, xs) => canvas.draw_horizontal_line(y, xs),
-                Line::Vertical(x, ys) => canvas.draw_vertical_line(x, ys),
-            }
+            l.draw(&mut canvas);
         }
     }
 

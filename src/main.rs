@@ -8,6 +8,7 @@ fn main() {
         Block::new((-1, 0), b"l'ultimo dell'anno"),
         Block::new((1, 1), b"cacca"),
         Block::new((-1, 1), b"yolo\nfoo\nbar"),
+        Block::new((-1, 2), b"aperitivo della vittoria"),
     ];
     let edges = [
         (0, 2),
@@ -16,6 +17,7 @@ fn main() {
         (3, 5),
         (4, 5),
         (1, 4),
+        (0, 6),
         // (4, 1),
     ];
 
