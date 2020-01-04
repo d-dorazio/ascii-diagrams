@@ -157,6 +157,8 @@ fn shortest_path(
             {
                 let mut new_path = path.clone();
 
+                let mut cost = 1;
+
                 // if the new point is on the last line then do not insert a new segment, but
                 // extend the last one
                 match new_path.last_mut() {
@@ -168,14 +170,20 @@ fn shortest_path(
                         *lx = x.min(xx).min(*lx);
                         *lxx = x.max(xx).max(*lxx);
                     }
-                    _ => new_path.push(if yy == y {
-                        Line::Horizontal(y, (x.min(xx), xx.max(x)))
-                    } else {
-                        Line::Vertical(x, (y.min(yy), yy.max(y)))
-                    }),
+                    _ => {
+                        new_path.push(if yy == y {
+                            Line::Horizontal(y, (x.min(xx), xx.max(x)))
+                        } else {
+                            Line::Vertical(x, (y.min(yy), yy.max(y)))
+                        });
+
+                        // make turns cost more as ideally we want to minimize them in order to
+                        // have easy to follow graphs
+                        cost += 1;
+                    }
                 }
 
-                queue.push((-(d + 1), (xx, yy), new_path));
+                queue.push((-(d + cost), (xx, yy), new_path));
             }
         };
 
