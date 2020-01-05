@@ -48,11 +48,3 @@ impl Block {
 mod render;
 
 pub use render::{render, RenderOptions};
-
-pub fn minmax<T: Ord>(a: T, b: T) -> (T, T) {
-    if a <= b {
-        (a, b)
-    } else {
-        (b, a)
-    }
-}

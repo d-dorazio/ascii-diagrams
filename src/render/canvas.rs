@@ -1,5 +1,3 @@
-use crate::minmax;
-
 /// A `Canvas` is the surface where we can draw shapes using ASCII characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Canvas {
@@ -54,5 +52,13 @@ impl Canvas {
         }
         self.canvas[y][x0] = b'+';
         self.canvas[y][x1] = b'+';
+    }
+}
+
+fn minmax<T: Ord>(a: T, b: T) -> (T, T) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
     }
 }
