@@ -31,6 +31,33 @@ pub fn find_lines_path(
         }
     }
 
+    // if there's enough margin either vertically or horizontally then place fake lines around the
+    // borders of the blocks to avoid passing through them if possible
+    if cs.render_cfg().hmargin > 2 {
+        for b in blocks {
+            let x = cs.column_x(b.column);
+            let y = cs.row_y(b.row);
+            let w = cs.column_width(b.column);
+            let h = cs.row_height(b.row);
+            for yy in 0..h {
+                canvas.canvas[y + yy][x - 1] = b'|';
+                canvas.canvas[y + yy][x + w] = b'|';
+            }
+        }
+    }
+    if cs.render_cfg().vmargin > 2 {
+        for b in blocks {
+            let x = cs.column_x(b.column);
+            let y = cs.row_y(b.row);
+            let w = cs.column_width(b.column);
+            let h = cs.row_height(b.row);
+            for xx in 0..w {
+                canvas.canvas[y - 1][x + xx] = b'-';
+                canvas.canvas[y + h][x + xx] = b'-';
+            }
+        }
+    }
+
     // TODO: score polylines according to turns, intersections, length, etc... and find the
     // configuration with the best score
     initial_polylines(cs, &mut canvas, blocks, edges)

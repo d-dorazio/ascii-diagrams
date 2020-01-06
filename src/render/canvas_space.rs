@@ -23,17 +23,12 @@ pub struct CanvasSpace {
 
     canvas_width: usize,
     canvas_height: usize,
+
+    render_cfg: RenderOptions,
 }
 
 impl CanvasSpace {
-    pub fn new(
-        boxes: &[Block],
-        RenderOptions {
-            hmargin,
-            vmargin,
-            padding,
-        }: RenderOptions,
-    ) -> Self {
+    pub fn new(boxes: &[Block], cfg: RenderOptions) -> Self {
         let mut min_column = LogicalCoord::max_value();
         let mut min_row = LogicalCoord::max_value();
         let mut max_column = LogicalCoord::min_value();
@@ -61,6 +56,8 @@ impl CanvasSpace {
 
             canvas_width: 0,
             canvas_height: 0,
+
+            render_cfg: cfg.clone(),
         };
 
         for b in boxes {
@@ -68,8 +65,8 @@ impl CanvasSpace {
             let r = usize::try_from(b.row - min_row).unwrap();
 
             // +2 to account for block borders
-            let w = 2 + b.text_width + padding * 2;
-            let h = 2 + b.text_height + padding * 2;
+            let w = 2 + b.text_width + cfg.padding * 2;
+            let h = 2 + b.text_height + cfg.padding * 2;
 
             cs.columns_width[c] = cs.columns_width[c].max(w);
             cs.rows_height[r] = cs.rows_height[r].max(h);
@@ -77,18 +74,18 @@ impl CanvasSpace {
 
         // note: margins are intentionally added before and after the first and last element in
         // order to have more room for placing lines.
-        cs.columns_xs[0] = hmargin;
-        cs.rows_ys[0] = vmargin;
+        cs.columns_xs[0] = cfg.hmargin;
+        cs.rows_ys[0] = cfg.vmargin;
 
         for x in 1..width {
-            cs.columns_xs[x] = cs.columns_xs[x - 1] + cs.columns_width[x - 1] + hmargin;
+            cs.columns_xs[x] = cs.columns_xs[x - 1] + cs.columns_width[x - 1] + cfg.hmargin;
         }
         for y in 1..height {
-            cs.rows_ys[y] = cs.rows_ys[y - 1] + cs.rows_height[y - 1] + vmargin;
+            cs.rows_ys[y] = cs.rows_ys[y - 1] + cs.rows_height[y - 1] + cfg.vmargin;
         }
 
-        cs.canvas_width = cs.columns_xs[width - 1] + cs.columns_width[width - 1] + hmargin;
-        cs.canvas_height = cs.rows_ys[height - 1] + cs.rows_height[height - 1] + vmargin;
+        cs.canvas_width = cs.columns_xs[width - 1] + cs.columns_width[width - 1] + cfg.hmargin;
+        cs.canvas_height = cs.rows_ys[height - 1] + cs.rows_height[height - 1] + cfg.vmargin;
 
         cs
     }
@@ -112,5 +109,9 @@ impl CanvasSpace {
     }
     pub fn row_height(&self, row: LogicalCoord) -> usize {
         self.rows_height[usize::try_from(row - self.min_row).unwrap()]
+    }
+
+    pub fn render_cfg(&self) -> &RenderOptions {
+        &self.render_cfg
     }
 }

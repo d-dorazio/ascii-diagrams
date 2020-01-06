@@ -26,7 +26,7 @@ fn main() {
         &edges,
         RenderOptions {
             hmargin: 5,
-            vmargin: 2,
+            vmargin: 3,
             padding: 1,
         },
     );
