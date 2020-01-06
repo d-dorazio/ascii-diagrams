@@ -146,7 +146,8 @@ fn shortest_path(
         }
 
         let mut push_node = |xx: usize, yy: usize| {
-            // always allow to overwrite the point outside src and dst
+            // always allow to overwrite the point outside src and dst even if there's a line and
+            // intersections are not allowed
             let srcd = xx.max(src.0) - xx.min(src.0) + yy.max(src.1) - yy.min(src.1);
             let dstd = xx.max(dst.0) - xx.min(dst.0) + yy.max(dst.1) - yy.min(dst.1);
             if (xx, yy) == src
@@ -158,6 +159,12 @@ fn shortest_path(
                 let mut new_path = path.clone();
 
                 let mut cost = 1;
+
+                // make intersections cost more as we want to minimize them to avoid ambiguities.
+                // In particular make them cost more than turns.
+                if canvas.canvas[yy][xx] != b' ' {
+                    cost += 2;
+                }
 
                 // if the new point is on the last line then do not insert a new segment, but
                 // extend the last one
