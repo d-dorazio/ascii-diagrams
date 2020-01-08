@@ -20,7 +20,11 @@ pub struct RenderOptions {
     pub padding: usize,
 }
 
-pub fn render(boxes: &[Block], edges: &[(usize, usize)], config: RenderOptions) -> Vec<Vec<u8>> {
+pub fn render(
+    boxes: &[Block],
+    edges: impl IntoIterator<Item = (usize, usize)>,
+    config: RenderOptions,
+) -> Vec<Vec<u8>> {
     if boxes.is_empty() {
         return vec![];
     }
@@ -82,7 +86,7 @@ mod tests {
 
         let canvas = render(
             &boxes,
-            &edges,
+            edges.iter().copied(),
             RenderOptions {
                 hmargin: 5,
                 vmargin: 2,
@@ -167,7 +171,7 @@ mod tests {
 
         let canvas = render(
             &boxes,
-            &edges,
+            edges.iter().copied(),
             RenderOptions {
                 hmargin: 5,
                 vmargin: 2,
@@ -233,7 +237,7 @@ mod tests {
 
         let canvas = render(
             &blocks,
-            &edges,
+            edges.iter().copied(),
             RenderOptions {
                 hmargin: 5,
                 vmargin: 3,

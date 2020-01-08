@@ -18,7 +18,7 @@ pub fn find_lines_path(
     canvas: &Canvas,
     cs: &CanvasSpace,
     blocks: &[Block],
-    edges: &[(usize, usize)],
+    edges: impl IntoIterator<Item = (usize, usize)>,
 ) -> Vec<Polyline> {
     // convert whatever is on the canvas to walls, lines are not considered walls as other lines
     // can pass on other lines but can never pass inside a block
@@ -67,13 +67,14 @@ fn initial_polylines(
     cs: &CanvasSpace,
     canvas: &mut Canvas,
     blocks: &[Block],
-    edges: &[(usize, usize)],
+    edges: impl IntoIterator<Item = (usize, usize)>,
 ) -> Vec<Polyline> {
-    let mut polylines = Vec::with_capacity(edges.len());
+    let edges = edges.into_iter();
+    let mut polylines = Vec::with_capacity(edges.size_hint().0);
 
     for (b0, b1) in edges {
-        let b0 = &blocks[*b0];
-        let b1 = &blocks[*b1];
+        let b0 = &blocks[b0];
+        let b1 = &blocks[b1];
         let (r0, c0) = (b0.row, b0.column);
         let (r1, c1) = (b1.row, b1.column);
 
