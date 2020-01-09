@@ -69,8 +69,17 @@ fn initial_polylines(
     blocks: &[Block],
     edges: impl IntoIterator<Item = (usize, usize)>,
 ) -> Vec<Polyline> {
-    let edges = edges.into_iter();
-    let mut polylines = Vec::with_capacity(edges.size_hint().0);
+    let mut edges = edges.into_iter().collect::<Vec<_>>();
+
+    // sort edges by length in order to place the shortest edges first as we have less chance to
+    // get them wrong (especially if they're between adjacent blocks)
+    edges.sort_by_key(|(b0, b1)| {
+        let b0 = &blocks[*b0];
+        let b1 = &blocks[*b1];
+        (b0.column - b1.column).abs() + (b0.row - b1.row).abs()
+    });
+
+    let mut polylines = Vec::with_capacity(edges.len());
 
     for (b0, b1) in edges {
         let b0 = &blocks[b0];

@@ -277,4 +277,50 @@ mod tests {
             .to_vec()
         );
     }
+
+    #[test]
+    fn test_diagram_avoid_intersections_with_straight_line() {
+        let blocks = [
+            Block::new((0, 0), b"left"),
+            Block::new((0, 1), b"center"),
+            Block::new((0, 2), b"right"),
+            Block::new((1, 1), b"bottom"),
+        ];
+
+        let edges = [(0, 2), (1, 3)];
+
+        let canvas = render(
+            &blocks,
+            edges.iter().copied(),
+            RenderOptions {
+                hmargin: 5,
+                vmargin: 3,
+                padding: 1,
+            },
+        );
+
+        assert_eq!(
+            canvas.join(&b"\n"[..]),
+            br#"                                               
+                +--------------+               
+                |              |               
+     +------+   | +--------+   | +-------+     
+     |      |   | |        |   | |       |     
+     | left +---+ | center |   +-+ right |     
+     |      |     |        |     |       |     
+     +------+     +----+---+     +-------+     
+                       |                       
+                       |                       
+                       |                       
+                  +----+---+                   
+                  |        |                   
+                  | bottom |                   
+                  |        |                   
+                  +--------+                   
+                                               
+                                               
+                                               "#
+            .to_vec()
+        );
+    }
 }
