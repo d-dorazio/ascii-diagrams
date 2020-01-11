@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
@@ -9,18 +10,22 @@ use structopt::StructOpt;
 
 use ascii_diagrams::*;
 
+macro_rules! die {
+    ( $ ( $ args : tt ) * ) => {
+        if cfg!(test) {
+            panic!($($args)*);
+        } else {
+            eprintln!($($args)*);
+            std::process::exit(1);
+        }
+    };
+}
+
 macro_rules! try_or_die {
     ($ expr : expr) => {
         match $expr {
             Ok(o) => o,
-            Err(e) => {
-                if cfg!(test) {
-                    panic!("{}", e);
-                } else {
-                    eprintln!("{}", e);
-                    std::process::exit(1);
-                }
-            }
+            Err(e) => die!("{}", e),
         }
     };
 }
@@ -38,7 +43,7 @@ fn default_padding() -> usize {
 #[derive(Debug, StructOpt)]
 struct Opts {
     #[structopt(name = "INPUT", parse(from_os_str))]
-    diagram: Option<PathBuf>,
+    diagram: PathBuf,
 
     #[structopt(name = "OUTPUT", parse(from_os_str))]
     output: Option<PathBuf>,
@@ -87,18 +92,27 @@ struct SpecPosition {
 fn main() {
     let opts = Opts::from_args();
 
+    let mut f = try_or_die!(File::open(&opts.diagram));
     let mut input_spec = vec![];
-    match opts.diagram {
-        None => {
-            try_or_die!(io::stdin().read_to_end(&mut input_spec));
-        }
-        Some(p) => {
-            let mut f = try_or_die!(File::open(p));
-            try_or_die!(f.read_to_end(&mut input_spec));
-        }
-    }
+    try_or_die!(f.read_to_end(&mut input_spec));
 
-    let canvas = render_diagram(&input_spec);
+    let spec: Spec = match opts
+        .diagram
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+    {
+        "json" => try_or_die!(serde_json::from_slice(&input_spec)),
+        "toml" => try_or_die!(toml::from_slice(&input_spec)),
+        e => {
+            die!(
+                r#"unrecognized diagram format "{}", valid extensions: toml, json"#,
+                e
+            );
+        }
+    };
+
+    let canvas = render_diagram(spec);
 
     match opts.output {
         Some(output) => {
@@ -119,9 +133,7 @@ fn main() {
     }
 }
 
-fn render_diagram(input_spec: &[u8]) -> Vec<Vec<u8>> {
-    let spec: Spec = try_or_die!(toml::from_slice(&input_spec));
-
+fn render_diagram(spec: Spec) -> Vec<Vec<u8>> {
     let mut id_to_block_id = HashMap::with_capacity(spec.blocks.len());
     let mut occupied_positions = HashSet::with_capacity(spec.blocks.len());
     let mut blocks = Vec::with_capacity(spec.blocks.len());
@@ -222,6 +234,7 @@ text = "oooo"
 position = { row = 1, column = -1 }
 
 "#;
+        let diagram = toml::from_slice(diagram).unwrap();
 
         assert_eq!(
             render_diagram(diagram).join(&b"\n"[..]),
