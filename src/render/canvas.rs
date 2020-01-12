@@ -1,3 +1,5 @@
+pub type CanvasPoint = (usize, usize);
+
 /// A `Canvas` is the surface where we can draw shapes using ASCII characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Canvas {
@@ -52,6 +54,10 @@ impl Canvas {
         }
         self.canvas[y][x0] = b'+';
         self.canvas[y][x1] = b'+';
+    }
+
+    pub fn at(&self, (x, y): CanvasPoint) -> u8 {
+        self.canvas[y][x]
     }
 }
 

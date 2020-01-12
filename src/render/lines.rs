@@ -1,8 +1,8 @@
 use std::collections::{BinaryHeap, HashSet};
 
-use super::canvas::Canvas;
-use super::canvas_space::CanvasSpace;
-use crate::Block;
+use crate::render::canvas::{Canvas, CanvasPoint};
+use crate::render::canvas_space::CanvasSpace;
+use crate::{Block, LogicalPoint};
 
 pub type Polyline = Vec<Line>;
 
@@ -68,8 +68,10 @@ pub fn find_edges(
         (b0.column - b1.column).abs() + (b0.row - b1.row).abs()
     });
 
-    // TODO: score polylines according to turns, intersections, length, etc... and find the
-    // configuration with the best score
+    // TODO: find the best arragement of lines by (pseudo-)randomly changing the lines and scoring
+    // the final solution looking at different heuristics like maximum line length, number of
+    // intersections, minimum distance from a line and a block, etc...
+
     connect_edges(cs, &mut canvas, blocks, &edges)
 }
 
@@ -84,64 +86,41 @@ fn connect_edges(
     for (b0, b1) in edges {
         let b0 = &blocks[*b0];
         let b1 = &blocks[*b1];
-        let (r0, c0) = (b0.row, b0.column);
-        let (r1, c1) = (b1.row, b1.column);
 
-        let mut src: (usize, usize) = (0, 0);
-        let mut dst: (usize, usize) = (0, 0);
+        let s = (b0.row, b0.column);
+        let d = (b1.row, b1.column);
 
-        if r0 == r1 {
-            src.1 = cs.row_y(r0) + cs.row_height(r0) / 2;
-            dst.1 = src.1;
+        // try to connect the edge from src to dst and viceversa because the connection points
+        // might be different in case the edge is not straight.
+        let (p0, p1) = closest_block_points(cs, s, d);
+        let (q0, q1) = closest_block_points(cs, d, s);
+        let has_alternative = p0 != q1 || p1 != q0;
 
-            if c0 < c1 {
-                src.0 = cs.column_x(c0) + cs.column_width(c0) - 1;
-                dst.0 = cs.column_x(c1);
-            } else {
-                src.0 = cs.column_x(c0);
-                dst.0 = cs.column_x(c1) + cs.column_width(c1) - 1;
-            }
-        } else if c0 == c1 {
-            src.0 = cs.column_x(c0) + cs.column_width(c0) / 2;
-            dst.0 = src.0;
+        // always prefer paths that do not create intersections because the final diagram is
+        // easier to follow given that we need to just follow the lines.
+        let path = [false, true]
+            .iter()
+            .filter_map(|&allow_intersections| {
+                let path = shortest_path(cs, canvas, p0, p1, allow_intersections);
+                if !has_alternative {
+                    return path;
+                }
 
-            if r0 < r1 {
-                src.1 = cs.row_y(r0) + cs.row_height(r0) - 1;
-                dst.1 = cs.row_y(r1);
-            } else {
-                src.1 = cs.row_y(r0);
-                dst.1 = cs.row_y(r1) + cs.row_height(r1) - 1;
-            }
-        } else if r0 < r1 {
-            dst.1 = cs.row_y(r1) + cs.row_height(r1) / 2;
-            src.0 = cs.column_x(c0) + cs.column_width(c0) / 2;
+                let inv = shortest_path(cs, canvas, q0, q1, allow_intersections);
 
-            src.1 = cs.row_y(r0) + cs.row_height(r0) - 1;
-            if c0 < c1 {
-                dst.0 = cs.column_x(c1);
-            } else {
-                dst.0 = cs.column_x(c1) + cs.column_width(c1) - 1;
-            }
-        } else {
-            dst.1 = cs.row_y(r1) + cs.row_height(r1) - 1;
-            dst.0 = cs.column_x(c1) + cs.column_width(c1) / 2;
-
-            src.1 = cs.row_y(r0) + cs.row_height(r0) / 2;
-
-            if c0 < c1 {
-                src.0 = cs.column_x(c0) + cs.column_width(c0) - 1;
-            } else {
-                src.0 = cs.column_x(c0);
-            }
-        }
-
-        // try to first find a path without an intersection, but if that cannot be found allow
-        // intersections
-        let path = shortest_path(cs, canvas, src, dst, false)
-            .or_else(|| shortest_path(cs, canvas, src, dst, true));
+                match (path, inv) {
+                    (Some((p, sp)), Some((q, sq))) => {
+                        Some(if sp <= sq { (p, sp) } else { (q, sq) })
+                    }
+                    (Some(p), _) => Some(p),
+                    (_, Some(q)) => Some(q),
+                    (None, None) => None,
+                }
+            })
+            .next();
 
         match path {
-            Some(path) => {
+            Some((path, _score)) => {
                 for l in &path {
                     l.draw(canvas);
                 }
@@ -156,22 +135,105 @@ fn connect_edges(
     polylines
 }
 
+fn closest_block_points(
+    cs: &CanvasSpace,
+    (r0, c0): LogicalPoint,
+    (r1, c1): LogicalPoint,
+) -> (CanvasPoint, CanvasPoint) {
+    if r0 == r1 {
+        // +--+   +--+
+        // |s0+---+d0|
+        // +--+   +--+
+
+        let mut src = (0, cs.row_y(r0) + cs.row_height(r0) / 2);
+        let mut dst = (0, src.1);
+
+        if c0 < c1 {
+            src.0 = cs.column_x(c0) + cs.column_width(c0) - 1;
+            dst.0 = cs.column_x(c1);
+        } else {
+            src.0 = cs.column_x(c0);
+            dst.0 = cs.column_x(c1) + cs.column_width(c1) - 1;
+        }
+
+        return (src, dst);
+    }
+
+    if c0 == c1 {
+        // +--+
+        // |d0|
+        // +-++
+        //   |
+        // +-++
+        // |s0|
+        // +--+
+
+        let mut src = (cs.column_x(c0) + cs.column_width(c0) / 2, 0);
+        let mut dst = (src.0, 0);
+
+        if r0 < r1 {
+            src.1 = cs.row_y(r0) + cs.row_height(r0) - 1;
+            dst.1 = cs.row_y(r1);
+        } else {
+            src.1 = cs.row_y(r0);
+            dst.1 = cs.row_y(r1) + cs.row_height(r1) - 1;
+        }
+
+        return (src, dst);
+    }
+
+    //
+    // +--+                    +--+             +--+      +--+
+    // |s0|                    |s1|        +----+d2|      |d3+-----+
+    // +-++                    +-++        |    +--+      +--+     |
+    //   |                       |         |                       |
+    //   |    +--+      +--+     |       +-++                    +-++
+    //   +----+d0|      |d1+-----+       |s2|                    |s3|
+    //        +--+      +--+             +--+                    +--+
+    //
+    //
+    // Note that these patterns are not reversible that is
+    // `block_points(src, dst) != block_points(dst, src)` but that's ok as it provides a nice hook
+    // to force the layout of the line.
+    //
+
+    let src = (
+        cs.column_x(c0) + cs.column_width(c0) / 2,
+        if r0 < r1 {
+            cs.row_y(r0) + cs.row_height(r0) - 1
+        } else {
+            cs.row_y(r0)
+        },
+    );
+
+    let dst = (
+        if c0 < c1 {
+            cs.column_x(c1)
+        } else {
+            cs.column_x(c1) + cs.column_width(c1) - 1
+        },
+        cs.row_y(r1) + cs.row_height(r1) / 2,
+    );
+
+    (src, dst)
+}
+
 fn shortest_path(
     cs: &CanvasSpace,
     canvas: &Canvas,
     src: (usize, usize),
     dst: (usize, usize),
     allow_intersections: bool,
-) -> Option<Polyline> {
+) -> Option<(Polyline, i64)> {
     let mut seen = HashSet::new();
     let mut queue = BinaryHeap::new();
     queue.push((0, src, vec![]));
 
-    while let Some((d, (x, y), path)) = queue.pop() {
-        let d = -d;
+    while let Some((score, (x, y), path)) = queue.pop() {
+        let score = -score;
 
         if (x, y) == dst {
-            return Some(path);
+            return Some((path, score));
         }
 
         if !seen.insert((x, y)) {
@@ -185,9 +247,9 @@ fn shortest_path(
             let dstd = xx.max(dst.0) - xx.min(dst.0) + yy.max(dst.1) - yy.min(dst.1);
             if (xx, yy) == src
                 || (xx, yy) == dst
-                || canvas.canvas[yy][xx] == b' '
-                || (canvas.canvas[yy][xx] != b'#' && (srcd <= 1 || dstd <= 1))
-                || (allow_intersections && canvas.canvas[yy][xx] != b'#')
+                || canvas.at((xx, yy)) == b' '
+                || (canvas.at((xx, yy)) != b'#' && (srcd <= 1 || dstd <= 1))
+                || (allow_intersections && canvas.at((xx, yy)) != b'#')
             {
                 let mut new_path = path.clone();
 
@@ -195,8 +257,8 @@ fn shortest_path(
 
                 // make intersections cost more as we want to minimize them to avoid ambiguities.
                 // In particular make them cost more than turns.
-                if canvas.canvas[yy][xx] != b' ' {
-                    cost += 2;
+                if canvas.at((xx, yy)) != b' ' {
+                    cost += 10;
                 }
 
                 // if the new point is on the last line then do not insert a new segment, but
@@ -223,7 +285,7 @@ fn shortest_path(
                     }
                 }
 
-                queue.push((-(d + cost), (xx, yy), new_path));
+                queue.push((-(score + cost), (xx, yy), new_path));
             }
         };
 
@@ -250,5 +312,71 @@ impl Line {
             Line::Horizontal(y, xs) => canvas.draw_horizontal_line(y, xs),
             Line::Vertical(x, ys) => canvas.draw_vertical_line(x, ys),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::render::canvas_space::CanvasSpace;
+    use crate::render::RenderOptions;
+
+    #[test]
+    fn test_closest_block_points() {
+        //                //
+        //  +---+  +---+  //
+        //  |000|  |111|  //
+        //  +---+  +---+  //
+        //                //
+        //  +---+         //
+        //  |222|         //
+        //  +---+         //
+        //                //
+        //         +---+  //
+        //         |333|  //
+        //         +---+  //
+        //                //
+
+        let blocks = [
+            Block::new((0, 0), b"000"),
+            Block::new((0, 1), b"111"),
+            Block::new((1, 0), b"222"),
+            Block::new((2, 1), b"333"),
+        ];
+        let cs = CanvasSpace::new(
+            &blocks,
+            RenderOptions {
+                hmargin: 2,
+                vmargin: 1,
+                padding: 0,
+            },
+        );
+
+        // 000 <-> 111
+        assert_eq!(closest_block_points(&cs, (0, 0), (0, 1)), ((6, 2), (9, 2)));
+        assert_eq!(closest_block_points(&cs, (0, 1), (0, 0)), ((9, 2), (6, 2)));
+
+        // 111 <-> 333
+        assert_eq!(
+            closest_block_points(&cs, (2, 1), (0, 1)),
+            ((11, 9), (11, 3))
+        );
+        assert_eq!(
+            closest_block_points(&cs, (0, 1), (2, 1)),
+            ((11, 3), (11, 9))
+        );
+
+        // 222 -> 111
+        assert_eq!(closest_block_points(&cs, (1, 0), (0, 1)), ((4, 5), (9, 2)));
+
+        // 111 -> 222
+        assert_eq!(closest_block_points(&cs, (0, 1), (1, 0)), ((11, 3), (6, 6)));
+
+        // 222 -> 333
+        assert_eq!(closest_block_points(&cs, (1, 0), (2, 1)), ((4, 7), (9, 10)));
+
+        // 333 -> 222
+        assert_eq!(closest_block_points(&cs, (2, 1), (1, 0)), ((11, 9), (6, 6)));
     }
 }
