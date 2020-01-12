@@ -141,6 +141,28 @@ fn closest_block_points(
     (r1, c1): LogicalPoint,
 ) -> (CanvasPoint, CanvasPoint) {
     if r0 == r1 {
+        if between(c0, c1).any(|cc| cs.has_block_at((r0, cc))) {
+            //     +-------------+
+            //     |             |
+            //   +-++   +--+   +-++   +--+   +--+   +--+
+            //   |s0|   |t0|   |d0|   |d1|   |t1|   |s1|
+            //   +--+   +--+   +--+   +-++   +--+   +-++
+            //                          |             |
+            //                          +-------------+
+
+            let src = (
+                cs.column_x(c0) + cs.column_width(c0) / 2,
+                if c0 < c1 {
+                    cs.row_y(r0)
+                } else {
+                    cs.row_y(r0) + cs.row_height(r0) - 1
+                },
+            );
+            let dst = (cs.column_x(c1) + cs.column_width(c1) / 2, src.1);
+
+            return (src, dst);
+        }
+
         // +--+   +--+
         // |s0+---+d0|
         // +--+   +--+
@@ -160,6 +182,32 @@ fn closest_block_points(
     }
 
     if c0 == c1 {
+        if between(r0, r1).any(|rr| cs.has_block_at((rr, c0))) {
+            //   +--+         +--+
+            //   |s0+-+     +-+d1|
+            //   +--+ |     | +--+
+            //        |     |
+            //   +--+ |     | +--+
+            //   |t0| |     | |t1|
+            //   +--+ |     | +--+
+            //        |     |
+            //   +--+ |     | +--+
+            //   |d0+-+     +-+s1|
+            //   +--+         +--+
+
+            let src = (
+                if r0 < r1 {
+                    cs.column_x(c0) + cs.column_width(c0) - 1
+                } else {
+                    cs.column_x(c0)
+                },
+                cs.row_y(r0) + cs.row_height(r0) / 2,
+            );
+            let dst = (src.0, cs.row_y(r1) + cs.row_height(r1) / 2);
+
+            return (src, dst);
+        }
+
         // +--+
         // |d0|
         // +-++
@@ -315,6 +363,10 @@ impl Line {
     }
 }
 
+fn between(a: i32, b: i32) -> impl Iterator<Item = i32> {
+    (1..(b - a).abs()).map(move |i| a + i * (b - a).signum())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,25 +376,31 @@ mod tests {
 
     #[test]
     fn test_closest_block_points() {
-        //                //
-        //  +---+  +---+  //
-        //  |000|  |111|  //
-        //  +---+  +---+  //
-        //                //
-        //  +---+         //
-        //  |222|         //
-        //  +---+         //
-        //                //
-        //         +---+  //
-        //         |333|  //
-        //         +---+  //
-        //                //
+        //
+        //  +---+  +---+    +---+
+        //  |000|  |111|    |777|
+        //  +---+  +---+    +---+
+        //
+        //  +---+
+        //  |222|
+        //  +---+
+        //
+        //         +---+
+        //         |333|
+        //         +---+
+        //
+        //         +---+
+        //         |999|
+        //         +---+
+        //
 
         let blocks = [
             Block::new((0, 0), b"000"),
             Block::new((0, 1), b"111"),
             Block::new((1, 0), b"222"),
             Block::new((2, 1), b"333"),
+            Block::new((0, 3), b"777"),
+            Block::new((3, 1), b"999"),
         ];
         let cs = CanvasSpace::new(
             &blocks,
@@ -378,5 +436,16 @@ mod tests {
 
         // 333 -> 222
         assert_eq!(closest_block_points(&cs, (2, 1), (1, 0)), ((11, 9), (6, 6)));
+
+        // 000 -> 777
+        assert_eq!(closest_block_points(&cs, (0, 0), (0, 3)), ((4, 1), (20, 1)));
+        assert_eq!(closest_block_points(&cs, (0, 3), (0, 0)), ((20, 3), (4, 3)));
+
+        // 111 -> 999
+        assert_eq!(
+            closest_block_points(&cs, (0, 1), (3, 1)),
+            ((13, 2), (13, 14))
+        );
+        assert_eq!(closest_block_points(&cs, (3, 1), (0, 1)), ((9, 14), (9, 2)));
     }
 }

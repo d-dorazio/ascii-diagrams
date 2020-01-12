@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use crate::render::RenderOptions;
-use crate::{Block, LogicalCoord};
+use crate::{Block, LogicalCoord, LogicalPoint};
 
 /// `CanvasSpace` is the definition of the cannvas dimensions (columns width and rows height)
 /// required to render a set of `Block`s.
@@ -20,6 +20,8 @@ pub struct CanvasSpace {
 
     rows_ys: Vec<usize>,
     rows_height: Vec<usize>,
+
+    blocks_map: Vec<Vec<bool>>,
 
     canvas_width: usize,
     canvas_height: usize,
@@ -54,6 +56,8 @@ impl CanvasSpace {
             rows_ys: vec![0; height],
             rows_height: vec![0; height],
 
+            blocks_map: vec![vec![false; width]; height],
+
             canvas_width: 0,
             canvas_height: 0,
 
@@ -70,6 +74,8 @@ impl CanvasSpace {
 
             cs.columns_width[c] = cs.columns_width[c].max(w);
             cs.rows_height[r] = cs.rows_height[r].max(h);
+
+            cs.blocks_map[r][c] = true;
         }
 
         // note: margins are intentionally added before and after the first and last element in
@@ -113,5 +119,10 @@ impl CanvasSpace {
 
     pub fn render_cfg(&self) -> &RenderOptions {
         &self.render_cfg
+    }
+
+    pub fn has_block_at(&self, (row, column): LogicalPoint) -> bool {
+        self.blocks_map[usize::try_from(row - self.min_row).unwrap()]
+            [usize::try_from(column - self.min_column).unwrap()]
     }
 }
