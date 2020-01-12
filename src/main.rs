@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use structopt::StructOpt;
 
-use ascii_diagrams::*;
+use ascii_diagrams::{render, Block, LogicalCoord, RenderOptions};
 
 macro_rules! die {
     ( $ ( $ args : tt ) * ) => {
@@ -30,33 +30,78 @@ macro_rules! try_or_die {
     };
 }
 
-fn default_hmargin() -> usize {
+// serde doesn't support literals as default values yet, have to use functions instead...
+//
+// See https://github.com/serde-rs/serde/issues/368
+const fn default_hmargin() -> usize {
     5
 }
-fn default_vmargin() -> usize {
+const fn default_vmargin() -> usize {
     3
 }
-fn default_padding() -> usize {
+const fn default_padding() -> usize {
     1
 }
 
+/// Render a diagram using only ASCII characters.
+///
+/// This is useful to embed diagrams directly as text instead of using images.
+///
+/// The diagram can be expressed in either TOML or JSON, but the underlying structure is the same.
+///
+/// Here's an example JSON diagram that shows how to render a very simple diagram.
+/// ```json
+/// {
+///   "blocks": [
+///     {
+///       "text": "zero",
+///       "position": { "column": -1, "row": -1 }
+///     },
+///     {
+///       "text": "one",
+///       "position": { "column": 0, "row": -1 }
+///     },
+///     {
+///       "text": "two",
+///       "position": { "column": 1, "row": -1 }
+///     },
+///     {
+///       "text": "0000",
+///       "position": { "column": -1, "row": 0 }
+///     },
+///     {
+///       "text": "four",
+///       "position": { "column": 1, "row": 0 }
+///     },
+///     {
+///       "text": "oooo",
+///       "position": { "column": -1, "row": 1 }
+///     }
+///   ],
+///   "edges": [
+///     { "from": "one", "to": "four" },
+///     { "from": "one", "to": "0000" },
+///     { "from": "two", "to": "zero" },
+///     { "from": "oooo", "to": "zero" }
+///   ]
+/// }
+/// ```
+///
+/// I also think these diagrams are quite neat to look at.
 #[derive(Debug, StructOpt)]
 struct Opts {
+    /// Input diagram to render in either TOML or JSON.
     #[structopt(name = "INPUT", parse(from_os_str))]
     diagram: PathBuf,
 
+    /// Output file where to save the final ascii diagram. If nothing is passed stdout will be
+    /// used.
     #[structopt(name = "OUTPUT", parse(from_os_str))]
     output: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
 struct Spec {
-    #[serde(default)]
-    name: String,
-
-    #[serde(default)]
-    description: String,
-
     blocks: Vec<SpecBlock>,
     edges: Vec<SpecEdge>,
 
@@ -198,11 +243,11 @@ fn render_diagram(spec: Spec) -> Vec<Vec<u8>> {
 mod tests {
     use super::*;
 
+    use ascii_diagrams::assert_diagram_eq;
+
     #[test]
     fn test_basic_toml_diagram() {
         let diagram = br#"
-name = "example1"
-
 edges = [ {from = "one", to = "four"}
         , {from = "one", to = "0000"}
         , {from = "two", to = "zero"}
@@ -236,8 +281,8 @@ position = { row = 1, column = -1 }
 "#;
         let diagram = toml::from_slice(diagram).unwrap();
 
-        assert_eq!(
-            render_diagram(diagram).join(&b"\n"[..]),
+        assert_diagram_eq!(
+            render_diagram(diagram),
             br#"                                           
               +-----------+                
               |           |                
@@ -265,7 +310,6 @@ position = { row = 1, column = -1 }
                                            
                                            
                                            "#
-            .to_vec()
         );
     }
 }

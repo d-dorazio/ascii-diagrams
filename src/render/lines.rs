@@ -14,7 +14,7 @@ pub enum Line {
 
 /// Try to find the shortest paths that minimize intersections between edges, but that still
 /// connect all the boxes as requested.
-pub fn find_lines_path(
+pub fn find_edges(
     canvas: &Canvas,
     cs: &CanvasSpace,
     blocks: &[Block],
@@ -58,17 +58,6 @@ pub fn find_lines_path(
         }
     }
 
-    // TODO: score polylines according to turns, intersections, length, etc... and find the
-    // configuration with the best score
-    initial_polylines(cs, &mut canvas, blocks, edges)
-}
-
-fn initial_polylines(
-    cs: &CanvasSpace,
-    canvas: &mut Canvas,
-    blocks: &[Block],
-    edges: impl IntoIterator<Item = (usize, usize)>,
-) -> Vec<Polyline> {
     let mut edges = edges.into_iter().collect::<Vec<_>>();
 
     // sort edges by length in order to place the shortest edges first as we have less chance to
@@ -79,11 +68,22 @@ fn initial_polylines(
         (b0.column - b1.column).abs() + (b0.row - b1.row).abs()
     });
 
+    // TODO: score polylines according to turns, intersections, length, etc... and find the
+    // configuration with the best score
+    connect_edges(cs, &mut canvas, blocks, &edges)
+}
+
+fn connect_edges(
+    cs: &CanvasSpace,
+    canvas: &mut Canvas,
+    blocks: &[Block],
+    edges: &[(usize, usize)],
+) -> Vec<Polyline> {
     let mut polylines = Vec::with_capacity(edges.len());
 
     for (b0, b1) in edges {
-        let b0 = &blocks[b0];
-        let b1 = &blocks[b1];
+        let b0 = &blocks[*b0];
+        let b1 = &blocks[*b1];
         let (r0, c0) = (b0.row, b0.column);
         let (r1, c1) = (b1.row, b1.column);
 
@@ -145,14 +145,10 @@ fn initial_polylines(
                 for l in &path {
                     l.draw(canvas);
                 }
-                // restore walls
-                canvas.canvas[src.1][src.0] = b'#';
-                canvas.canvas[dst.1][dst.0] = b'#';
-
                 polylines.push(path);
             }
             None => {
-                todo!("no free path even with intersections enabled?");
+                unreachable!("no free path even with intersections enabled?");
             }
         }
     }
@@ -190,7 +186,7 @@ fn shortest_path(
             if (xx, yy) == src
                 || (xx, yy) == dst
                 || canvas.canvas[yy][xx] == b' '
-                || (canvas.canvas[yy][xx] != b'#' && (srcd == 1 || dstd == 1))
+                || (canvas.canvas[yy][xx] != b'#' && (srcd <= 1 || dstd <= 1))
                 || (allow_intersections && canvas.canvas[yy][xx] != b'#')
             {
                 let mut new_path = path.clone();

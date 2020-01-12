@@ -1,10 +1,11 @@
+#[macro_use]
 mod canvas;
 mod canvas_space;
 mod lines;
 
 use canvas::Canvas;
 use canvas_space::CanvasSpace;
-use lines::find_lines_path;
+use lines::find_edges;
 
 use crate::Block;
 
@@ -49,13 +50,36 @@ pub fn render(
         }
     }
 
-    for poly in find_lines_path(&canvas, &cs, boxes, edges) {
+    for poly in find_edges(&canvas, &cs, boxes, edges) {
         for l in poly {
             l.draw(&mut canvas);
         }
     }
 
     canvas.canvas
+}
+
+#[macro_export]
+macro_rules! assert_diagram_eq {
+    ($ canvas : expr, $ expected : expr) => {{
+        let c = $canvas.join(&b"\n"[..]);
+        let e = $expected.to_vec();
+
+        if c != e {
+            let pretty_canvas = String::from_utf8(c).unwrap();
+            let pretty_expected = String::from_utf8(e).unwrap();
+
+            panic!(
+                r#"assertion failed `(left == right)`
+canvas:
+{}
+
+expected canvas:
+{}"#,
+                pretty_canvas, pretty_expected
+            );
+        }
+    }};
 }
 
 #[cfg(test)]
@@ -94,7 +118,7 @@ mod tests {
             },
         );
 
-        assert_eq!(canvas.join(&b"\n"[..]),
+        assert_diagram_eq!(canvas,
        br#"                                                                                                  
                     +------------------------------------------+                                  
      +------------+ |   +--------------------+     +-------+   | +--------------------------+     
@@ -119,7 +143,7 @@ mod tests {
      |            |                                |       |                                      
      +------------+                                +-------+                                      
                                                                                                   
-                                                                                                  "#.to_vec()
+                                                                                                  "#
         );
     }
 
@@ -179,7 +203,7 @@ mod tests {
             },
         );
 
-        assert_eq!(canvas.join(&b"\n"[..]),
+        assert_diagram_eq!(canvas,
         br#"                                                                                                                                                                                            
                                                                                                                                                                                             
                      +-----------------------------+                                                                                                                                        
@@ -216,7 +240,7 @@ mod tests {
                                                          |                        |     |             |     |                      |                            |                     |     
                                                          +------------------------+     +-------------+     +----------------------+                            +---------------------+     
                                                                                                                                                                                             
-                                                                                                                                                                                            "#.to_vec()
+                                                                                                                                                                                            "#
 
 
         );
@@ -245,8 +269,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            canvas.join(&b"\n"[..]),
+        assert_diagram_eq!(
+            canvas,
             br#"                                           
               +-----------+                
               |           |                
@@ -274,7 +298,6 @@ mod tests {
                                            
                                            
                                            "#
-            .to_vec()
         );
     }
 
@@ -299,8 +322,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            canvas.join(&b"\n"[..]),
+        assert_diagram_eq!(
+            canvas,
             br#"                                               
                 +--------------+               
                 |              |               
@@ -320,7 +343,6 @@ mod tests {
                                                
                                                
                                                "#
-            .to_vec()
         );
     }
 }
