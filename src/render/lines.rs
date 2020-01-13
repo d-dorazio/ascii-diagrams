@@ -10,8 +10,12 @@ use crate::render::canvas::{Canvas, CanvasPoint};
 use crate::render::canvas_space::CanvasSpace;
 use crate::{Block, LogicalPoint, RenderOptions};
 
+/// A collection of `Line`s.
 pub type Polyline = Vec<Line>;
 
+/// A `Line` is a segment of a `Polyline` and it's the basic block to draw lines.
+///
+/// Note that only vertical or horizontal lines are supported.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Line {
     Vertical(usize, (usize, usize)),
@@ -115,6 +119,14 @@ pub fn find_edges(
     short_poly
 }
 
+/// Try to find the best paths that connect `blocks` according to `edges`.
+///
+/// A path is considered "better" than another one if it creates fewer intersections with other
+/// lines, has less turns and it's shorter.
+///
+/// The order of `edges` matters as it's totally possible that edges sorted in a given way generate
+/// intersections while sorted in another way they do not. This function blindly follows the order
+/// of `edges` and does not try to avoid intersections this way.
 fn connect_edges(
     cs: &CanvasSpace,
     canvas: &mut Canvas,
@@ -188,6 +200,7 @@ fn connect_edges(
     (score, polylines)
 }
 
+/// Get a random point on the boundary of a given block.
 fn get_random_point_on_block(
     cs: &CanvasSpace,
     (r, c): LogicalPoint,
@@ -206,6 +219,11 @@ fn get_random_point_on_block(
     }
 }
 
+/// Return the best candidate points to connect the given two `LogicalPoint`s.
+///
+/// Note that this function is not commutative (that is the order of the input points matters)
+/// because changing the order can result in different points that are equally good though. This
+/// can be used to easily explore different solutions.
 fn closest_points_on_blocks(
     cs: &CanvasSpace,
     (r0, c0): LogicalPoint,
@@ -301,7 +319,6 @@ fn closest_points_on_blocks(
         return (src, dst);
     }
 
-    //
     // +--+                    +--+             +--+      +--+
     // |s0|                    |s1|        +----+d2|      |d3+-----+
     // +-++                    +-++        |    +--+      +--+     |
@@ -309,11 +326,6 @@ fn closest_points_on_blocks(
     //   |    +--+      +--+     |       +-++                    +-++
     //   +----+d0|      |d1+-----+       |s2|                    |s3|
     //        +--+      +--+             +--+                    +--+
-    //
-    //
-    // Note that these patterns are not reversible that is
-    // `block_points(src, dst) != block_points(dst, src)` but that's ok as it provides a nice hook
-    // to force the layout of the line.
     //
 
     let src = (
@@ -337,6 +349,11 @@ fn closest_points_on_blocks(
     (src, dst)
 }
 
+/// Find the shortest path that goes from `src` to `dst`.
+///
+/// By shortest we mean the path that generates the fewer intersections (if allowed) and turns.
+///
+/// Returns both the path and its score.
 fn shortest_path(
     cs: &CanvasSpace,
     canvas: &Canvas,
@@ -470,6 +487,8 @@ impl PartialOrd for Score {
     }
 }
 
+/// Return all the numbers between `a` and `b` with `a` and `b` excluded. `a` and `b` do not need
+/// to be ordered.
 fn between(a: i32, b: i32) -> impl Iterator<Item = i32> {
     (1..(b - a).abs()).map(move |i| a + i * (b - a).signum())
 }
