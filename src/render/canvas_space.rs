@@ -30,7 +30,7 @@ pub struct CanvasSpace {
 }
 
 impl CanvasSpace {
-    pub fn new(boxes: &[Block], cfg: RenderOptions) -> Self {
+    pub fn new(boxes: &[Block], cfg: &RenderOptions) -> Self {
         let mut min_column = LogicalCoord::max_value();
         let mut min_row = LogicalCoord::max_value();
         let mut max_column = LogicalCoord::min_value();

@@ -98,6 +98,14 @@ struct Opts {
     /// used.
     #[structopt(name = "OUTPUT", parse(from_os_str))]
     output: Option<PathBuf>,
+
+    /// Seed to use for the rendering algorithm.
+    #[structopt(long)]
+    seed: Option<u64>,
+
+    /// Maximum number of tweaks to find the best arrangement of lines.
+    #[structopt(long, default_value = "100")]
+    max_tweaks: usize,
 }
 
 #[derive(Deserialize)]
@@ -157,7 +165,7 @@ fn main() {
         }
     };
 
-    let canvas = render_diagram(spec);
+    let canvas = render_diagram(spec, &opts);
 
     match opts.output {
         Some(output) => {
@@ -178,7 +186,7 @@ fn main() {
     }
 }
 
-fn render_diagram(spec: Spec) -> Vec<Vec<u8>> {
+fn render_diagram(spec: Spec, opts: &Opts) -> Vec<Vec<u8>> {
     let mut id_to_block_id = HashMap::with_capacity(spec.blocks.len());
     let mut occupied_positions = HashSet::with_capacity(spec.blocks.len());
     let mut blocks = Vec::with_capacity(spec.blocks.len());
@@ -235,6 +243,8 @@ fn render_diagram(spec: Spec) -> Vec<Vec<u8>> {
             hmargin: spec.horizontal_margin,
             vmargin: spec.vertical_margin,
             padding: spec.padding,
+            seed: opts.seed,
+            max_tweaks: opts.max_tweaks,
         },
     )
 }
@@ -282,7 +292,15 @@ position = { row = 1, column = -1 }
         let diagram = toml::from_slice(diagram).unwrap();
 
         assert_diagram_eq!(
-            render_diagram(diagram),
+            render_diagram(
+                diagram,
+                &Opts {
+                    diagram: PathBuf::new(),
+                    output: None,
+                    seed: Some(0),
+                    max_tweaks: 0,
+                }
+            ),
             br#"                                           
          +------------------------+        
          |                        |        

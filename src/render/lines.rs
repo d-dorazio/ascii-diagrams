@@ -2,9 +2,13 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::{BinaryHeap, HashSet};
 use std::ops::Add;
 
+use rand::prelude::*;
+use rand::seq::SliceRandom;
+use rand_xoshiro::Xoshiro256PlusPlus;
+
 use crate::render::canvas::{Canvas, CanvasPoint};
 use crate::render::canvas_space::CanvasSpace;
-use crate::{Block, LogicalPoint};
+use crate::{Block, LogicalPoint, RenderOptions};
 
 pub type Polyline = Vec<Line>;
 
@@ -28,6 +32,7 @@ pub fn find_edges(
     cs: &CanvasSpace,
     blocks: &[Block],
     edges: impl IntoIterator<Item = (usize, usize)>,
+    cfg: &RenderOptions,
 ) -> Vec<Polyline> {
     // convert whatever is on the canvas to walls, lines are not considered walls as other lines
     // can pass on other lines but can never pass inside a block
@@ -67,21 +72,46 @@ pub fn find_edges(
         }
     }
 
-    let mut edges = edges.into_iter().collect::<Vec<_>>();
+    let mut rng = match cfg.seed {
+        Some(seed) => Xoshiro256PlusPlus::seed_from_u64(seed),
+        None => Xoshiro256PlusPlus::from_entropy(),
+    };
 
     // sort edges by length in order to place the shortest edges first as we have less chance to
     // get them wrong (especially if they're between adjacent blocks)
-    edges.sort_by_key(|(b0, b1)| {
+    let edge_len = |(b0, b1): &(usize, usize)| {
         let b0 = &blocks[*b0];
         let b1 = &blocks[*b1];
         (b0.column - b1.column).abs() + (b0.row - b1.row).abs()
-    });
+    };
+    let (short_edges, mut edges) = edges
+        .into_iter()
+        .partition::<Vec<_>, _>(|e| edge_len(e) == 1);
 
-    // TODO: find the best arragement of lines by (pseudo-)randomly changing the lines and scoring
-    // the final solution looking at different heuristics like maximum line length, number of
-    // intersections, minimum distance from a line and a block, etc...
+    edges.sort_by_key(edge_len);
 
-    connect_edges(cs, &mut canvas, blocks, &edges).1
+    // tweaks do not apply to edges with length 1 because in those cases the simple solution is
+    // always the preferred one.
+    let (_score, mut short_poly) = connect_edges(cs, &mut canvas, blocks, &short_edges);
+
+    let (mut best_score, mut poly) = connect_edges(cs, &mut canvas.clone(), blocks, &edges);
+    for _ in 0..cfg.max_tweaks {
+        if best_score.intersections == 0 {
+            break;
+        }
+
+        // tweak the current solution by shuffling the order of the edges hoping to find a better
+        // solution
+        edges.shuffle(&mut rng);
+        let (s, p) = connect_edges(cs, &mut canvas.clone(), blocks, &edges);
+        if s < best_score {
+            best_score = s;
+            poly = p;
+        }
+    }
+
+    short_poly.extend_from_slice(&poly);
+    short_poly
 }
 
 fn connect_edges(
@@ -417,7 +447,6 @@ mod tests {
     use super::*;
 
     use crate::render::canvas_space::CanvasSpace;
-    use crate::render::RenderOptions;
 
     #[test]
     fn test_closest_block_points() {
@@ -449,10 +478,12 @@ mod tests {
         ];
         let cs = CanvasSpace::new(
             &blocks,
-            RenderOptions {
+            &RenderOptions {
                 hmargin: 2,
                 vmargin: 1,
                 padding: 0,
+                seed: Some(0),
+                max_tweaks: 0,
             },
         );
 

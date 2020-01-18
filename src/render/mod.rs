@@ -19,6 +19,12 @@ pub struct RenderOptions {
 
     /// padding around the text inside the `Block`s.
     pub padding: usize,
+
+    /// seed to use to initialize the rng used for rendering heuristics.
+    pub seed: Option<u64>,
+
+    /// maximum number of tweaks to find the best arrangements of lines.
+    pub max_tweaks: usize,
 }
 
 pub fn render(
@@ -30,7 +36,7 @@ pub fn render(
         return vec![];
     }
 
-    let cs = CanvasSpace::new(boxes, config);
+    let cs = CanvasSpace::new(boxes, &config);
     let mut canvas = Canvas::new(cs.canvas_width(), cs.canvas_height());
 
     for b in boxes {
@@ -50,7 +56,7 @@ pub fn render(
         }
     }
 
-    for poly in find_edges(&canvas, &cs, boxes, edges) {
+    for poly in find_edges(&canvas, &cs, boxes, edges, &config) {
         for l in poly {
             l.draw(&mut canvas);
         }
@@ -115,6 +121,8 @@ mod tests {
                 hmargin: 5,
                 vmargin: 2,
                 padding: 1,
+                seed: Some(0),
+                max_tweaks: 0,
             },
         );
 
@@ -200,6 +208,8 @@ mod tests {
                 hmargin: 5,
                 vmargin: 2,
                 padding: 1,
+                seed: Some(0),
+                max_tweaks: 0,
             },
         );
 
@@ -266,6 +276,8 @@ mod tests {
                 hmargin: 5,
                 vmargin: 3,
                 padding: 1,
+                seed: Some(0),
+                max_tweaks: 0,
             },
         );
 
@@ -319,6 +331,8 @@ mod tests {
                 hmargin: 5,
                 vmargin: 3,
                 padding: 1,
+                seed: Some(0),
+                max_tweaks: 0,
             },
         );
 
