@@ -1,4 +1,6 @@
+use std::cmp::{Ord, Ordering, PartialOrd};
 use std::collections::{BinaryHeap, HashSet};
+use std::ops::Add;
 
 use crate::render::canvas::{Canvas, CanvasPoint};
 use crate::render::canvas_space::CanvasSpace;
@@ -10,6 +12,13 @@ pub type Polyline = Vec<Line>;
 pub enum Line {
     Vertical(usize, (usize, usize)),
     Horizontal(usize, (usize, usize)),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Score {
+    path_len: usize,
+    intersections: usize,
+    turns: usize,
 }
 
 /// Try to find the shortest paths that minimize intersections between edges, but that still
@@ -31,8 +40,8 @@ pub fn find_edges(
         }
     }
 
-    // if there's enough margin either vertically or horizontally then place fake lines around the
-    // borders of the blocks to avoid passing through them if possible
+    // if there's enough margin either vertically or horizontally then place a padding symbol
+    // around the borders of the blocks to avoid passing through them if possible
     if cs.render_cfg().hmargin > 2 {
         for b in blocks {
             let x = cs.column_x(b.column);
@@ -40,8 +49,8 @@ pub fn find_edges(
             let w = cs.column_width(b.column);
             let h = cs.row_height(b.row);
             for yy in 0..h {
-                canvas.canvas[y + yy][x - 1] = b'|';
-                canvas.canvas[y + yy][x + w] = b'|';
+                canvas.canvas[y + yy][x - 1] = b'@';
+                canvas.canvas[y + yy][x + w] = b'@';
             }
         }
     }
@@ -52,8 +61,8 @@ pub fn find_edges(
             let w = cs.column_width(b.column);
             let h = cs.row_height(b.row);
             for xx in 0..w {
-                canvas.canvas[y - 1][x + xx] = b'-';
-                canvas.canvas[y + h][x + xx] = b'-';
+                canvas.canvas[y - 1][x + xx] = b'@';
+                canvas.canvas[y + h][x + xx] = b'@';
             }
         }
     }
@@ -72,7 +81,7 @@ pub fn find_edges(
     // the final solution looking at different heuristics like maximum line length, number of
     // intersections, minimum distance from a line and a block, etc...
 
-    connect_edges(cs, &mut canvas, blocks, &edges)
+    connect_edges(cs, &mut canvas, blocks, &edges).1
 }
 
 fn connect_edges(
@@ -80,8 +89,9 @@ fn connect_edges(
     canvas: &mut Canvas,
     blocks: &[Block],
     edges: &[(usize, usize)],
-) -> Vec<Polyline> {
+) -> (Score, Vec<Polyline>) {
     let mut polylines = Vec::with_capacity(edges.len());
+    let mut score = Score::new();
 
     for (b0, b1) in edges {
         let b0 = &blocks[*b0];
@@ -109,9 +119,7 @@ fn connect_edges(
                 let inv = shortest_path(cs, canvas, q0, q1, allow_intersections);
 
                 match (path, inv) {
-                    (Some((p, sp)), Some((q, sq))) => {
-                        Some(if sp <= sq { (p, sp) } else { (q, sq) })
-                    }
+                    (Some(p), Some(q)) => Some(if p.0 <= q.0 { p } else { q }),
                     (Some(p), _) => Some(p),
                     (_, Some(q)) => Some(q),
                     (None, None) => None,
@@ -120,11 +128,12 @@ fn connect_edges(
             .next();
 
         match path {
-            Some((path, _score)) => {
+            Some((s, path)) => {
                 for l in &path {
                     l.draw(canvas);
                 }
                 polylines.push(path);
+                score = score + s;
             }
             None => {
                 unreachable!("no free path even with intersections enabled?");
@@ -132,7 +141,7 @@ fn connect_edges(
         }
     }
 
-    polylines
+    (score, polylines)
 }
 
 fn closest_block_points(
@@ -272,16 +281,16 @@ fn shortest_path(
     src: (usize, usize),
     dst: (usize, usize),
     allow_intersections: bool,
-) -> Option<(Polyline, i64)> {
+) -> Option<(Score, Polyline)> {
+    use std::cmp::Reverse;
+
     let mut seen = HashSet::new();
     let mut queue = BinaryHeap::new();
-    queue.push((0, src, vec![]));
+    queue.push((Reverse(Score::new()), vec![], src));
 
-    while let Some((score, (x, y), path)) = queue.pop() {
-        let score = -score;
-
+    while let Some((Reverse(score), path, (x, y))) = queue.pop() {
         if (x, y) == dst {
-            return Some((path, score));
+            return Some((score, path));
         }
 
         if !seen.insert((x, y)) {
@@ -293,20 +302,19 @@ fn shortest_path(
             // intersections are not allowed
             let srcd = xx.max(src.0) - xx.min(src.0) + yy.max(src.1) - yy.min(src.1);
             let dstd = xx.max(dst.0) - xx.min(dst.0) + yy.max(dst.1) - yy.min(dst.1);
+
+            let c = canvas.at((xx, yy));
             if (xx, yy) == src
                 || (xx, yy) == dst
-                || canvas.at((xx, yy)) == b' '
-                || (canvas.at((xx, yy)) != b'#' && (srcd <= 1 || dstd <= 1))
-                || (allow_intersections && canvas.at((xx, yy)) != b'#')
+                || c == b' '
+                || (c != b'#' && (srcd <= 1 || dstd <= 1))
+                || (allow_intersections && c != b'#')
             {
+                let mut new_score = score.clone();
                 let mut new_path = path.clone();
 
-                let mut cost = 1;
-
-                // make intersections cost more as we want to minimize them to avoid ambiguities.
-                // In particular make them cost more than turns.
-                if canvas.at((xx, yy)) != b' ' {
-                    cost += 10;
+                if c != b' ' && c != b'@' && (xx, yy) != src && (xx, yy) != dst {
+                    new_score.intersections += 1;
                 }
 
                 // if the new point is on the last line then do not insert a new segment, but
@@ -327,13 +335,13 @@ fn shortest_path(
                             Line::Vertical(x, (y.min(yy), yy.max(y)))
                         });
 
-                        // make turns cost more as ideally we want to minimize them in order to
-                        // have easy to follow graphs
-                        cost += 1;
+                        new_score.turns += 1;
                     }
                 }
 
-                queue.push((-(score + cost), (xx, yy), new_path));
+                new_score.path_len += 1;
+
+                queue.push((Reverse(new_score), new_path, (xx, yy)));
             }
         };
 
@@ -360,6 +368,43 @@ impl Line {
             Line::Horizontal(y, xs) => canvas.draw_horizontal_line(y, xs),
             Line::Vertical(x, ys) => canvas.draw_vertical_line(x, ys),
         }
+    }
+}
+
+impl Score {
+    fn new() -> Self {
+        Score {
+            path_len: 0,
+            turns: 0,
+            intersections: 0,
+        }
+    }
+}
+
+impl Add for Score {
+    type Output = Self;
+
+    fn add(self, rhs: Score) -> Self::Output {
+        Score {
+            intersections: self.intersections + rhs.intersections,
+            path_len: self.path_len + rhs.path_len,
+            turns: self.turns + rhs.turns,
+        }
+    }
+}
+
+impl Ord for Score {
+    fn cmp(&self, o: &Score) -> Ordering {
+        self.partial_cmp(o).unwrap()
+    }
+}
+impl PartialOrd for Score {
+    fn partial_cmp(&self, o: &Score) -> Option<Ordering> {
+        (self.intersections, self.turns, self.path_len).partial_cmp(&(
+            o.intersections,
+            o.turns,
+            o.path_len,
+        ))
     }
 }
 
