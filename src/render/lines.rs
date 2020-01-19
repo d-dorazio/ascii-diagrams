@@ -92,9 +92,10 @@ pub fn find_edges(
 
     // tweaks do not apply to edges with length 1 because in those cases the simple solution is
     // always the preferred one.
-    let (_score, mut short_poly) = connect_edges(cs, &mut canvas, blocks, &short_edges);
+    let (_score, mut short_poly) = connect_edges(cs, &mut canvas, blocks, &short_edges, &mut rng);
 
-    let (mut best_score, mut poly) = connect_edges(cs, &mut canvas.clone(), blocks, &edges);
+    let (mut best_score, mut poly) =
+        connect_edges(cs, &mut canvas.clone(), blocks, &edges, &mut rng);
     for _ in 0..cfg.max_tweaks {
         if best_score.intersections == 0 {
             break;
@@ -103,7 +104,7 @@ pub fn find_edges(
         // tweak the current solution by shuffling the order of the edges hoping to find a better
         // solution
         edges.shuffle(&mut rng);
-        let (s, p) = connect_edges(cs, &mut canvas.clone(), blocks, &edges);
+        let (s, p) = connect_edges(cs, &mut canvas.clone(), blocks, &edges, &mut rng);
         if s < best_score {
             best_score = s;
             poly = p;
@@ -119,6 +120,7 @@ fn connect_edges(
     canvas: &mut Canvas,
     blocks: &[Block],
     edges: &[(usize, usize)],
+    rng: &mut Xoshiro256PlusPlus,
 ) -> (Score, Vec<Polyline>) {
     let mut polylines = Vec::with_capacity(edges.len());
     let mut score = Score::new();
@@ -127,13 +129,25 @@ fn connect_edges(
         let b0 = &blocks[*b0];
         let b1 = &blocks[*b1];
 
-        let s = (b0.row, b0.column);
-        let d = (b1.row, b1.column);
+        // try to get the closest points on the given blocks, but if those are already occupied
+        // then connect random points on the boundaries
+        let mut get_points_on_block = |s, d| {
+            let (mut a, mut b) = closest_points_on_blocks(cs, s, d);
+            if canvas.canvas[a.1][a.0] == b'+' {
+                a = get_random_point_on_block(cs, s, rng);
+            }
+
+            if canvas.canvas[b.1][b.0] == b'+' {
+                b = get_random_point_on_block(cs, d, rng);
+            }
+
+            (a, b)
+        };
 
         // try to connect the edge from src to dst and viceversa because the connection points
         // might be different in case the edge is not straight.
-        let (p0, p1) = closest_block_points(cs, s, d);
-        let (q0, q1) = closest_block_points(cs, d, s);
+        let (p0, p1) = get_points_on_block((b0.row, b0.column), (b1.row, b1.column));
+        let (q0, q1) = get_points_on_block((b1.row, b1.column), (b0.row, b0.column));
         let has_alternative = p0 != q1 || p1 != q0;
 
         // always prefer paths that do not create intersections because the final diagram is
@@ -174,7 +188,25 @@ fn connect_edges(
     (score, polylines)
 }
 
-fn closest_block_points(
+fn get_random_point_on_block(
+    cs: &CanvasSpace,
+    (r, c): LogicalPoint,
+    rng: &mut Xoshiro256PlusPlus,
+) -> CanvasPoint {
+    if rng.gen() {
+        (
+            cs.column_x(c) + 1 + rng.gen_range(0, cs.column_width(c) - 2),
+            cs.row_y(r) + 1 + rng.gen_range(0, 2) * (cs.row_height(r) - 2),
+        )
+    } else {
+        (
+            cs.column_x(c) + 1 + rng.gen_range(0, 2) * (cs.column_width(c) - 2),
+            cs.row_y(r) + 1 + rng.gen_range(0, cs.row_height(r) - 2),
+        )
+    }
+}
+
+fn closest_points_on_blocks(
     cs: &CanvasSpace,
     (r0, c0): LogicalPoint,
     (r1, c1): LogicalPoint,
@@ -488,40 +520,67 @@ mod tests {
         );
 
         // 000 <-> 111
-        assert_eq!(closest_block_points(&cs, (0, 0), (0, 1)), ((6, 2), (9, 2)));
-        assert_eq!(closest_block_points(&cs, (0, 1), (0, 0)), ((9, 2), (6, 2)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (0, 0), (0, 1)),
+            ((6, 2), (9, 2))
+        );
+        assert_eq!(
+            closest_points_on_blocks(&cs, (0, 1), (0, 0)),
+            ((9, 2), (6, 2))
+        );
 
         // 111 <-> 333
         assert_eq!(
-            closest_block_points(&cs, (2, 1), (0, 1)),
+            closest_points_on_blocks(&cs, (2, 1), (0, 1)),
             ((11, 9), (11, 3))
         );
         assert_eq!(
-            closest_block_points(&cs, (0, 1), (2, 1)),
+            closest_points_on_blocks(&cs, (0, 1), (2, 1)),
             ((11, 3), (11, 9))
         );
 
         // 222 -> 111
-        assert_eq!(closest_block_points(&cs, (1, 0), (0, 1)), ((4, 5), (9, 2)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (1, 0), (0, 1)),
+            ((4, 5), (9, 2))
+        );
 
         // 111 -> 222
-        assert_eq!(closest_block_points(&cs, (0, 1), (1, 0)), ((11, 3), (6, 6)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (0, 1), (1, 0)),
+            ((11, 3), (6, 6))
+        );
 
         // 222 -> 333
-        assert_eq!(closest_block_points(&cs, (1, 0), (2, 1)), ((4, 7), (9, 10)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (1, 0), (2, 1)),
+            ((4, 7), (9, 10))
+        );
 
         // 333 -> 222
-        assert_eq!(closest_block_points(&cs, (2, 1), (1, 0)), ((11, 9), (6, 6)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (2, 1), (1, 0)),
+            ((11, 9), (6, 6))
+        );
 
         // 000 -> 777
-        assert_eq!(closest_block_points(&cs, (0, 0), (0, 3)), ((4, 1), (20, 1)));
-        assert_eq!(closest_block_points(&cs, (0, 3), (0, 0)), ((20, 3), (4, 3)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (0, 0), (0, 3)),
+            ((4, 1), (20, 1))
+        );
+        assert_eq!(
+            closest_points_on_blocks(&cs, (0, 3), (0, 0)),
+            ((20, 3), (4, 3))
+        );
 
         // 111 -> 999
         assert_eq!(
-            closest_block_points(&cs, (0, 1), (3, 1)),
+            closest_points_on_blocks(&cs, (0, 1), (3, 1)),
             ((13, 2), (13, 14))
         );
-        assert_eq!(closest_block_points(&cs, (3, 1), (0, 1)), ((9, 14), (9, 2)));
+        assert_eq!(
+            closest_points_on_blocks(&cs, (3, 1), (0, 1)),
+            ((9, 14), (9, 2))
+        );
     }
 }
