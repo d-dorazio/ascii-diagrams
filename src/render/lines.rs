@@ -208,13 +208,13 @@ fn get_random_point_on_block(
 ) -> CanvasPoint {
     if rng.gen() {
         (
-            cs.column_x(c) + 1 + rng.gen_range(0, cs.column_width(c) - 2),
-            cs.row_y(r) + 1 + rng.gen_range(0, 2) * (cs.row_height(r) - 2),
+            cs.column_x(c) + 1 + rng.gen_range(0..cs.column_width(c) - 2),
+            cs.row_y(r) + 1 + rng.gen_range(0..2) * (cs.row_height(r) - 2),
         )
     } else {
         (
-            cs.column_x(c) + 1 + rng.gen_range(0, 2) * (cs.column_width(c) - 2),
-            cs.row_y(r) + 1 + rng.gen_range(0, cs.row_height(r) - 2),
+            cs.column_x(c) + 1 + rng.gen_range(0..2) * (cs.column_width(c) - 2),
+            cs.row_y(r) + 1 + rng.gen_range(0..cs.row_height(r) - 2),
         )
     }
 }
